@@ -36,7 +36,15 @@ export default function CartPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          items: items,
+          userId: user.id,
+          items: items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            restaurantId: item.restaurantId,
+            restaurantName: item.restaurantName,
+          })),
           subtotal: getTotal(),
           deliveryFee: deliveryFee,
           tax: tax,
@@ -50,10 +58,13 @@ export default function CartPage() {
         clearCart()
         router.push(`/order-confirmation/${data.orderId}`)
       } else {
-        console.error("Failed to create order")
+        const errorData = await response.json()
+        console.error("Failed to create order:", errorData.error)
+        alert("Failed to place order. Please try again.")
       }
     } catch (error) {
       console.error("Error creating order:", error)
+      alert("Network error. Please try again.")
     } finally {
       setLoading(false)
     }

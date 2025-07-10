@@ -52,13 +52,13 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        return {
+        const restaurantData = {
           id: place.place_id || `place_${Math.random().toString(36).substr(2, 9)}`,
           name: place.name,
           cuisine: getCuisineFromTypes(place.types) || "Multi-cuisine",
           rating: place.rating || 4.0,
           deliveryTime: deliveryTime,
-          deliveryFee: Math.floor(Math.random() * 50) + 25, // ₹25-₹75
+          deliveryFee: Math.floor(Math.random() * 50) + 25,
           image: place.photos?.[0]
             ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${place.photos[0].photo_reference}&key=${process.env.GOOGLE_PLACES_API_KEY}`
             : "/placeholder.svg?height=200&width=300",
@@ -71,7 +71,12 @@ export async function POST(request: NextRequest) {
             lng: place.geometry.location.lng,
           },
           phone: phoneNumber,
+          // Generate contextual menu
+          menu: generateContextualMenu(place.types, place.name),
         }
+
+        console.log(`📍 Processed restaurant: ${restaurantData.name} (ID: ${restaurantData.id})`)
+        return restaurantData
       }),
     )
 
@@ -113,15 +118,378 @@ export async function POST(request: NextRequest) {
         .sort((a, b) => (a.distance || 0) - (b.distance || 0))
         .slice(0, 20)
 
+      // Cache the restaurants for slug lookup
+      try {
+        await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/restaurants/slug/cache`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ restaurants: uniqueRestaurants }),
+        })
+      } catch (cacheError) {
+        console.log("Failed to cache restaurants:", cacheError)
+      }
+
       return NextResponse.json({ restaurants: uniqueRestaurants })
     } catch (dbError) {
       console.log("Database query failed, using Google Places data only:", dbError)
+
+      // Still try to cache the Google Places data
+      try {
+        await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/restaurants/slug/cache`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ restaurants }),
+        })
+      } catch (cacheError) {
+        console.log("Failed to cache restaurants:", cacheError)
+      }
+
       return NextResponse.json({ restaurants: restaurants.sort((a, b) => (a.distance || 0) - (b.distance || 0)) })
     }
   } catch (error) {
     console.error("Error fetching nearby restaurants:", error)
     return getFallbackRestaurants()
   }
+}
+
+function generateContextualMenu(types: string[], restaurantName: string) {
+  const name = restaurantName.toLowerCase()
+  let menuType = "general"
+
+  if (
+    types.includes("indian_restaurant") ||
+    name.includes("biryani") ||
+    name.includes("tandoor") ||
+    name.includes("curry") ||
+    name.includes("indian") ||
+    name.includes("punjabi") ||
+    name.includes("south indian")
+  ) {
+    menuType = "indian"
+  } else if (
+    types.includes("chinese_restaurant") ||
+    name.includes("chinese") ||
+    name.includes("noodle") ||
+    name.includes("wok") ||
+    name.includes("dragon") ||
+    name.includes("golden")
+  ) {
+    menuType = "chinese"
+  } else if (
+    types.includes("italian_restaurant") ||
+    types.includes("pizza_restaurant") ||
+    name.includes("pizza") ||
+    name.includes("italian") ||
+    name.includes("pasta") ||
+    name.includes("romano")
+  ) {
+    menuType = "italian"
+  } else if (
+    types.includes("fast_food_restaurant") ||
+    types.includes("meal_takeaway") ||
+    name.includes("burger") ||
+    name.includes("kfc") ||
+    name.includes("mcdonald") ||
+    name.includes("subway") ||
+    name.includes("quick")
+  ) {
+    menuType = "fastfood"
+  } else if (
+    types.includes("cafe") ||
+    types.includes("bakery") ||
+    name.includes("cafe") ||
+    name.includes("coffee") ||
+    name.includes("starbucks") ||
+    name.includes("barista")
+  ) {
+    menuType = "cafe"
+  } else if (
+    types.includes("japanese_restaurant") ||
+    types.includes("sushi_restaurant") ||
+    name.includes("sushi") ||
+    name.includes("japanese") ||
+    name.includes("ramen")
+  ) {
+    menuType = "japanese"
+  } else if (types.includes("thai_restaurant") || name.includes("thai") || name.includes("bangkok")) {
+    menuType = "thai"
+  }
+
+  return getMenuByType(menuType, restaurantName)
+}
+
+function getMenuByType(menuType: string, restaurantName: string) {
+  const baseId = restaurantName.replace(/\s+/g, "_").toLowerCase()
+
+  const menuTemplates: { [key: string]: any[] } = {
+    indian: [
+      {
+        name: "Butter Chicken",
+        description: "Tender chicken in rich tomato and butter gravy",
+        price: 349,
+        category: "main course",
+        isVegetarian: false,
+        isSpicy: true,
+      },
+      {
+        name: "Paneer Butter Masala",
+        description: "Cottage cheese in creamy tomato gravy",
+        price: 299,
+        category: "main course",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Chicken Biryani",
+        description: "Aromatic basmati rice with tender chicken pieces",
+        price: 329,
+        category: "biryani",
+        isVegetarian: false,
+        isSpicy: true,
+      },
+      {
+        name: "Garlic Naan",
+        description: "Soft bread with garlic and butter",
+        price: 69,
+        category: "bread",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+    ],
+    chinese: [
+      {
+        name: "Kung Pao Chicken",
+        description: "Spicy stir-fried chicken with peanuts and vegetables",
+        price: 299,
+        category: "main course",
+        isVegetarian: false,
+        isSpicy: true,
+      },
+      {
+        name: "Vegetable Fried Rice",
+        description: "Stir-fried rice with mixed vegetables",
+        price: 199,
+        category: "rice",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Spring Rolls",
+        description: "Crispy rolls filled with vegetables",
+        price: 99,
+        category: "appetizers",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Hot and Sour Soup",
+        description: "Spicy soup with vegetables",
+        price: 149,
+        category: "soup",
+        isVegetarian: true,
+        isSpicy: true,
+      },
+    ],
+    italian: [
+      {
+        name: "Margherita Pizza",
+        description: "Fresh tomatoes, mozzarella, and basil",
+        price: 299,
+        category: "pizza",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Spaghetti Carbonara",
+        description: "Pasta with eggs, pancetta, and Parmesan cheese",
+        price: 349,
+        category: "pasta",
+        isVegetarian: false,
+        isSpicy: false,
+      },
+      {
+        name: "Caesar Salad",
+        description: "Crisp romaine lettuce with parmesan cheese and Caesar dressing",
+        price: 199,
+        category: "salad",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Tiramisu",
+        description: "Classic Italian dessert with coffee-soaked ladyfingers and mascarpone cheese",
+        price: 249,
+        category: "dessert",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+    ],
+    fastfood: [
+      {
+        name: "Cheeseburger",
+        description: "Beef patty with cheese and lettuce",
+        price: 149,
+        category: "burgers",
+        isVegetarian: false,
+        isSpicy: false,
+      },
+      {
+        name: "French Fries",
+        description: "Crispy fried potatoes",
+        price: 99,
+        category: "sides",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Chicken Nuggets",
+        description: "Breaded and fried chicken pieces",
+        price: 199,
+        category: "nuggets",
+        isVegetarian: false,
+        isSpicy: false,
+      },
+      {
+        name: "Soft Drink",
+        description: "Refreshing soft drink",
+        price: 49,
+        category: "drinks",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+    ],
+    cafe: [
+      {
+        name: "Espresso",
+        description: "Strong coffee",
+        price: 99,
+        category: "drinks",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Cappuccino",
+        description: "Espresso with steamed milk and foam",
+        price: 149,
+        category: "drinks",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Croissant",
+        description: "Buttery flaky pastry",
+        price: 199,
+        category: "pastries",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Bagel",
+        description: "Jewish rye bread with cream cheese",
+        price: 149,
+        category: "pastries",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+    ],
+    japanese: [
+      {
+        name: "Sushi Roll",
+        description: "Rice roll with fresh fish and vegetables",
+        price: 299,
+        category: "sushi",
+        isVegetarian: false,
+        isSpicy: true,
+      },
+      {
+        name: "Tempura",
+        description: "Lightly battered and fried vegetables",
+        price: 199,
+        category: "appetizers",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Udon Noodles",
+        description: "Thick wheat noodles in a savory broth",
+        price: 249,
+        category: "noodles",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+      {
+        name: "Matcha Latte",
+        description: "Green tea latte",
+        price: 149,
+        category: "drinks",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+    ],
+    thai: [
+      {
+        name: "Green Curry",
+        description: "Spicy curry with green peppers and coconut milk",
+        price: 299,
+        category: "curry",
+        isVegetarian: false,
+        isSpicy: true,
+      },
+      {
+        name: "Pad Thai",
+        description: "Stir-fried rice noodles with shrimp and vegetables",
+        price: 199,
+        category: "noodles",
+        isVegetarian: false,
+        isSpicy: false,
+      },
+      {
+        name: "Tom Yum Soup",
+        description: "Spicy soup with shrimp and lemongrass",
+        price: 149,
+        category: "soup",
+        isVegetarian: false,
+        isSpicy: true,
+      },
+      {
+        name: "Mango Sticky Rice",
+        description: "Sweet sticky rice with mango",
+        price: 249,
+        category: "dessert",
+        isVegetarian: true,
+        isSpicy: false,
+      },
+    ],
+    general: [
+      {
+        name: "Chef's Special",
+        description: "Today's recommended dish",
+        price: 299,
+        category: "specials",
+        isVegetarian: false,
+        isSpicy: false,
+      },
+    ],
+  }
+
+  const selectedMenu = menuTemplates[menuType] ||
+    menuTemplates.general || [
+      {
+        name: "Chef's Special",
+        description: "Today's recommended dish",
+        price: 299,
+        category: "specials",
+        isVegetarian: false,
+        isSpicy: false,
+      },
+    ]
+
+  return selectedMenu.map((item, index) => ({
+    id: `${baseId}_${index + 1}`,
+    ...item,
+    image: "/placeholder.svg?height=200&width=300",
+    isAvailable: true,
+  }))
 }
 
 // Helper function to determine cuisine from Google Places types
@@ -199,6 +567,19 @@ function getFallbackRestaurants() {
       address: "MG Road, Bangalore, Karnataka 560001",
       coordinates: { lat: 12.9716, lng: 77.5946 },
       phone: "+91 80 1234 5678",
+      menu: [
+        {
+          id: "pizza_palace_1",
+          name: "Margherita Pizza",
+          description: "Fresh tomatoes, mozzarella, and basil",
+          price: 299,
+          category: "pizza",
+          image: "/placeholder.svg?height=200&width=300",
+          isVegetarian: true,
+          isSpicy: false,
+          isAvailable: true,
+        },
+      ],
     },
     {
       id: "2",
@@ -214,36 +595,19 @@ function getFallbackRestaurants() {
       address: "Connaught Place, New Delhi, Delhi 110001",
       coordinates: { lat: 28.6139, lng: 77.209 },
       phone: "+91 11 2345 6789",
-    },
-    {
-      id: "3",
-      name: "Biryani House",
-      cuisine: "Indian",
-      rating: 4.6,
-      deliveryTime: "25-40 min",
-      deliveryFee: 39,
-      image: "/placeholder.svg?height=200&width=300",
-      distance: 1.8,
-      isOpen: true,
-      priceRange: "₹₹",
-      address: "Hyderabad, Telangana 500001",
-      coordinates: { lat: 17.385, lng: 78.4867 },
-      phone: "+91 40 5678 9012",
-    },
-    {
-      id: "4",
-      name: "South Indian Delights",
-      cuisine: "South Indian",
-      rating: 4.4,
-      deliveryTime: "20-35 min",
-      deliveryFee: 35,
-      image: "/placeholder.svg?height=200&width=300",
-      distance: 1.5,
-      isOpen: true,
-      priceRange: "₹",
-      address: "T. Nagar, Chennai, Tamil Nadu 600017",
-      coordinates: { lat: 13.0827, lng: 80.2707 },
-      phone: "+91 44 6789 0123",
+      menu: [
+        {
+          id: "burger_junction_1",
+          name: "Classic Burger",
+          description: "Beef patty with lettuce and tomato",
+          price: 199,
+          category: "burgers",
+          image: "/placeholder.svg?height=200&width=300",
+          isVegetarian: false,
+          isSpicy: false,
+          isAvailable: true,
+        },
+      ],
     },
   ]
 

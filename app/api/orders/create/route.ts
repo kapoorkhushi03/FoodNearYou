@@ -1,23 +1,55 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { ObjectId } from "mongodb"
-import { connectToDatabase } from "@/lib/mongodb"
-import type { Order } from "@/models/Order"
+import { serverOrderStorage } from "@/lib/server-storage"
+
+interface OrderItem {
+  id: string
+  name: string
+  price: number
+  quantity: number
+  restaurantId: string
+  restaurantName: string
+}
+
+interface CreateOrderRequest {
+  userId: string
+  items: OrderItem[]
+  subtotal: number
+  deliveryFee: number
+  tax: number
+  total: number
+  deliveryAddress: string
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { items, subtotal, deliveryFee, tax, total, deliveryAddress, userId } = await request.json()
+    const { userId, items, subtotal, deliveryFee, tax, total, deliveryAddress }: CreateOrderRequest =
+      await request.json()
 
-    // Calculate estimated delivery time using Google Maps Distance Matrix API
-    const estimatedTime = await calculateDeliveryTime(deliveryAddress)
+    console.log("📝 Creating order for user:", userId)
+    console.log("🛒 Order items:", items.length)
 
-    const { db } = await connectToDatabase()
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: "No items in order" }, { status: 400 })
+    }
 
-    const newOrder: Order = {
-      userId: new ObjectId(userId),
-      restaurantId: new ObjectId(items[0]?.restaurantId),
-      restaurantName: items[0]?.restaurantName,
-      items: items.map((item: any) => ({
-        menuItemId: new ObjectId(item.id),
+    if (!userId) {
+      return NextResponse.json({ error: "User ID required" }, { status: 400 })
+    }
+
+    // Calculate estimated delivery time
+    const estimatedTime = calculateDeliveryTime()
+
+    // Generate order ID
+    const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`
+
+    // Create order object
+    const newOrder = {
+      _id: orderId,
+      userId: userId,
+      restaurantId: items[0].restaurantId,
+      restaurantName: items[0].restaurantName,
+      items: items.map((item) => ({
+        menuItemId: item.id,
         name: item.name,
         price: item.price,
         quantity: item.quantity,
@@ -27,39 +59,45 @@ export async function POST(request: NextRequest) {
       tax,
       total,
       deliveryAddress,
-      status: "pending",
+      status: "confirmed",
       estimatedDeliveryTime: estimatedTime,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
 
-    const result = await db.collection<Order>("orders").insertOne(newOrder)
+    console.log("💾 Saving order:", orderId)
+
+    // Store in server memory
+    serverOrderStorage.addOrder(userId, newOrder)
+
+    // Try to save to database as well (if MongoDB is configured)
+    try {
+      if (process.env.MONGODB_URI) {
+        const { connectToDatabase } = await import("@/lib/mongodb")
+        const { db } = await connectToDatabase()
+        await db.collection("orders").insertOne(newOrder)
+        console.log("✅ Order saved to database successfully")
+      }
+    } catch (dbError) {
+      console.error("⚠️ Database save failed, but order stored in memory:", dbError)
+    }
+
+    console.log("🎉 Order created successfully:", orderId)
 
     return NextResponse.json({
       message: "Order created successfully",
-      orderId: result.insertedId.toString(),
+      orderId: orderId,
       estimatedDeliveryTime: estimatedTime,
     })
   } catch (error) {
-    console.error("Error creating order:", error)
+    console.error("❌ Error creating order:", error)
     return NextResponse.json({ error: "Failed to create order" }, { status: 500 })
   }
 }
 
-async function calculateDeliveryTime(deliveryAddress: string): Promise<string> {
-  try {
-    // In production, use Google Maps Distance Matrix API
-    // const response = await fetch(
-    //   `https://maps.googleapis.com/maps/api/distancematrix/json?origins=restaurant_address&destinations=${encodeURIComponent(deliveryAddress)}&key=${process.env.GOOGLE_MAPS_API_KEY}`
-    // )
-
-    // For demo purposes, return a random time between 20-45 minutes
-    const minTime = 20 + Math.floor(Math.random() * 25)
-    const maxTime = minTime + 10
-
-    return `${minTime}-${maxTime} min`
-  } catch (error) {
-    console.error("Error calculating delivery time:", error)
-    return "30-45 min"
-  }
+function calculateDeliveryTime(): string {
+  // Generate random delivery time between 20-45 minutes
+  const minTime = 20 + Math.floor(Math.random() * 15)
+  const maxTime = minTime + 10 + Math.floor(Math.random() * 10)
+  return `${minTime}-${maxTime} min`
 }

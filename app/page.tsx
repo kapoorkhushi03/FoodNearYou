@@ -22,6 +22,7 @@ interface Restaurant {
   isOpen: boolean
   priceRange: string
   address: string
+  slug?: string
 }
 
 export default function HomePage() {
@@ -56,6 +57,20 @@ export default function HomePage() {
     }
   }, [userLocation])
 
+  const createRestaurantSlug = (name: string, id: string): string => {
+    // Create a URL-friendly slug from restaurant name
+    const baseSlug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
+      .replace(/\s+/g, "-") // Replace spaces with hyphens
+      .replace(/-+/g, "-") // Replace multiple hyphens with single
+      .trim()
+
+    // Add a short hash from the ID to ensure uniqueness
+    const hash = id.slice(-6)
+    return `${baseSlug}-${hash}`
+  }
+
   const fetchNearbyRestaurants = async () => {
     try {
       setLoading(true)
@@ -73,12 +88,21 @@ export default function HomePage() {
 
       if (response.ok) {
         const data = await response.json()
-        setRestaurants(data.restaurants)
+        // Add slugs to restaurants
+        const restaurantsWithSlugs = data.restaurants.map((restaurant: Restaurant) => ({
+          ...restaurant,
+          slug: createRestaurantSlug(restaurant.name, restaurant.id),
+        }))
+        setRestaurants(restaurantsWithSlugs)
       }
     } catch (error) {
       console.error("Error fetching restaurants:", error)
-      // Fallback to sample data
-      setRestaurants(sampleRestaurants)
+      // Fallback to sample data with slugs
+      const sampleWithSlugs = sampleRestaurants.map((restaurant) => ({
+        ...restaurant,
+        slug: createRestaurantSlug(restaurant.name, restaurant.id),
+      }))
+      setRestaurants(sampleWithSlugs)
     } finally {
       setLoading(false)
     }
@@ -156,17 +180,28 @@ export default function HomePage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredRestaurants.map((restaurant) => (
-                <Link key={restaurant.id} href={`/restaurant/${restaurant.id}`}>
+                <Link key={restaurant.id} href={`/restaurant/${restaurant.slug}`}>
                   <Card className="hover:shadow-lg transition-shadow cursor-pointer">
                     <div className="relative">
                       <img
                         src={restaurant.image || "/placeholder.svg"}
                         alt={restaurant.name}
                         className="w-full h-48 object-cover rounded-t-lg"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement
+                          target.src = "/placeholder.svg?height=200&width=300"
+                        }}
                       />
                       {!restaurant.isOpen && (
                         <div className="absolute inset-0 bg-black bg-opacity-50 rounded-t-lg flex items-center justify-center">
                           <span className="text-white font-semibold">Closed</span>
+                        </div>
+                      )}
+                      {restaurant.id.startsWith("ChIJ") && (
+                        <div className="absolute top-2 left-2">
+                          <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-xs">
+                            📍 Live
+                          </Badge>
                         </div>
                       )}
                     </div>
@@ -196,7 +231,9 @@ export default function HomePage() {
                           <div>₹{restaurant.deliveryFee} delivery</div>
                         </div>
                         <div className="flex items-center justify-between mt-2">
-                          <span className="text-sm text-gray-500">{restaurant.distance.toFixed(1)} km away</span>
+                          <span className="text-sm text-gray-500">
+                            {restaurant.distance ? `${restaurant.distance.toFixed(1)} km away` : "Nearby"}
+                          </span>
                           <span className="text-sm font-medium">{restaurant.priceRange}</span>
                         </div>
                       </div>

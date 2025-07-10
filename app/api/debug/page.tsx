@@ -1,12 +1,39 @@
-import { DebugPlaces } from "@/components/debug-places"
+import { NextResponse } from "next/server"
+import { serverOrderStorage } from "@/lib/server-storage"
 
-export default function DebugPage() {
-  return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="container mx-auto px-4">
-        <h1 className="text-3xl font-bold text-center mb-8">Google Places API Debug</h1>
-        <DebugPlaces />
-      </div>
-    </div>
-  )
+export async function GET() {
+  try {
+    let databaseStatus = "Not configured"
+    let dbOrderCount = 0
+
+    try {
+      if (process.env.MONGODB_URI) {
+        const { connectToDatabase } = await import("@/lib/mongodb")
+        const { db } = await connectToDatabase()
+        const count = await db.collection("orders").countDocuments()
+        dbOrderCount = count
+        databaseStatus = "Connected"
+      }
+    } catch (error) {
+      databaseStatus = "Connection failed"
+    }
+
+    // Get all orders from server memory
+    const allMemoryOrders = serverOrderStorage.getAllOrders()
+
+    return NextResponse.json({
+      memoryOrderCount: allMemoryOrders.length,
+      databaseStatus,
+      dbOrderCount,
+      memoryOrders: allMemoryOrders.map((order) => ({
+        id: order._id,
+        userId: order.userId,
+        restaurant: order.restaurantName,
+        total: order.total,
+        createdAt: order.createdAt,
+      })),
+    })
+  } catch (error) {
+    return NextResponse.json({ error: "Debug failed" }, { status: 500 })
+  }
 }
