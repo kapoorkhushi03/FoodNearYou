@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Slider } from "@/components/ui/slider"
 import Link from "next/link"
 import { useAuth } from "@/hooks/use-auth"
 import { Header } from "@/components/header"
@@ -28,12 +31,17 @@ interface Restaurant {
 export default function HomePage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [distanceFilter, setDistanceFilter] = useState<number | null>(null)
+  const [showFilters, setShowFilters] = useState(false)
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(true)
+
   const { user } = useAuth()
 
   useEffect(() => {
-    // Get user location
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -44,8 +52,8 @@ export default function HomePage() {
         },
         (error) => {
           console.error("Error getting location:", error)
-          // Default to a sample location if geolocation fails
-          setUserLocation({ lat: 40.7128, lng: -74.006 })
+          // Fallback to a default location (e.g., Bangalore)
+          setUserLocation({ lat: 12.9716, lng: 77.5946 })
         },
       )
     }
@@ -53,27 +61,33 @@ export default function HomePage() {
 
   useEffect(() => {
     if (userLocation) {
-      fetchNearbyRestaurants()
+      // Reset restaurants and pagination when location changes
+      setRestaurants([])
+      setNextPageToken(null)
+      setHasMore(true)
+      fetchNearbyRestaurants(null) // null means first page
     }
   }, [userLocation])
 
   const createRestaurantSlug = (name: string, id: string): string => {
-    // Create a URL-friendly slug from restaurant name
     const baseSlug = name
       .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
-      .replace(/\s+/g, "-") // Replace spaces with hyphens
-      .replace(/-+/g, "-") // Replace multiple hyphens with single
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
       .trim()
-
-    // Add a short hash from the ID to ensure uniqueness
     const hash = id.slice(-6)
     return `${baseSlug}-${hash}`
   }
 
-  const fetchNearbyRestaurants = async () => {
+  const fetchNearbyRestaurants = async (pageToken: string | null) => {
     try {
-      setLoading(true)
+      if (pageToken) {
+        setLoadingMore(true)
+      } else {
+        setLoading(true)
+      }
+
       const response = await fetch("/api/restaurants/nearby", {
         method: "POST",
         headers: {
@@ -82,36 +96,66 @@ export default function HomePage() {
         body: JSON.stringify({
           lat: userLocation?.lat,
           lng: userLocation?.lng,
-          radius: 5000, // 5km radius
+          radius: 5000,
+          pagetoken: pageToken, // Use pagetoken instead of page
         }),
       })
 
       if (response.ok) {
         const data = await response.json()
-        // Add slugs to restaurants
         const restaurantsWithSlugs = data.restaurants.map((restaurant: Restaurant) => ({
           ...restaurant,
           slug: createRestaurantSlug(restaurant.name, restaurant.id),
         }))
-        setRestaurants(restaurantsWithSlugs)
+
+        if (pageToken) {
+          // Append to existing restaurants for pagination
+          setRestaurants((prev) => [...prev, ...restaurantsWithSlugs])
+        } else {
+          // Replace restaurants for first page
+          setRestaurants(restaurantsWithSlugs)
+        }
+
+        setNextPageToken(data.nextPageToken)
+        setHasMore(data.hasMore)
+      } else {
+        // Fallback to sample data
+        if (!pageToken) {
+          const restaurantsWithSlugs = sampleRestaurants.map((restaurant) => ({
+            ...restaurant,
+            slug: createRestaurantSlug(restaurant.name, restaurant.id),
+          }))
+          setRestaurants(restaurantsWithSlugs)
+          setHasMore(false)
+        }
       }
     } catch (error) {
       console.error("Error fetching restaurants:", error)
-      // Fallback to sample data with slugs
-      const sampleWithSlugs = sampleRestaurants.map((restaurant) => ({
-        ...restaurant,
-        slug: createRestaurantSlug(restaurant.name, restaurant.id),
-      }))
-      setRestaurants(sampleWithSlugs)
+      if (!pageToken) {
+        const restaurantsWithSlugs = sampleRestaurants.map((restaurant) => ({
+          ...restaurant,
+          slug: createRestaurantSlug(restaurant.name, restaurant.id),
+        }))
+        setRestaurants(restaurantsWithSlugs)
+        setHasMore(false)
+      }
     } finally {
       setLoading(false)
+      setLoadingMore(false)
+    }
+  }
+
+  const handleLoadMore = () => {
+    if (nextPageToken && !loadingMore) {
+      fetchNearbyRestaurants(nextPageToken)
     }
   }
 
   const filteredRestaurants = restaurants.filter(
     (restaurant) =>
-      restaurant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      restaurant.cuisine.toLowerCase().includes(searchQuery.toLowerCase()),
+      (restaurant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        restaurant.cuisine.toLowerCase().includes(searchQuery.toLowerCase())) &&
+      (distanceFilter === null || restaurant.distance <= distanceFilter),
   )
 
   return (
@@ -126,8 +170,6 @@ export default function HomePage() {
             <p className="text-xl mb-8">
               Discover the best restaurants near you and get your favorite meals delivered in minutes
             </p>
-
-            {/* Search Bar */}
             <div className="relative max-w-md mx-auto">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <Input
@@ -142,13 +184,123 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Location Display */}
-      {userLocation && (
-        <section className="bg-white border-b py-4">
-          <div className="container mx-auto px-4">
-            <div className="flex items-center justify-center text-gray-600">
+      {/* Location and Filter Display */}
+      <section className="bg-white border-b py-4">
+        <div className="container mx-auto px-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center text-gray-600">
               <MapPin className="w-5 h-5 mr-2" />
               <span>Delivering to your location</span>
+            </div>
+            <Dialog open={showFilters} onOpenChange={setShowFilters}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="flex items-center gap-2 bg-transparent">
+                  <Filter className="w-4 h-4" />
+                  Filters
+                  {distanceFilter && (
+                    <Badge variant="secondary" className="ml-1">
+                      {distanceFilter}km
+                    </Badge>
+                  )}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Filter Restaurants</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">Maximum Distance</Label>
+                    <div className="space-y-3">
+                      <Slider
+                        value={[distanceFilter || 5]}
+                        onValueChange={(value) => setDistanceFilter(value[0])}
+                        max={20}
+                        min={0.5}
+                        step={0.5}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>0.5 km</span>
+                        <span className="font-medium">{distanceFilter ? `${distanceFilter} km` : "5 km"}</span>
+                        <span>20 km</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">Quick Distance Filters</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant={distanceFilter === 1 ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setDistanceFilter(1)}
+                      >
+                        Within 1 km
+                      </Button>
+                      <Button
+                        variant={distanceFilter === 2 ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setDistanceFilter(2)}
+                      >
+                        Within 2 km
+                      </Button>
+                      <Button
+                        variant={distanceFilter === 5 ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setDistanceFilter(5)}
+                      >
+                        Within 5 km
+                      </Button>
+                      <Button
+                        variant={distanceFilter === 10 ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setDistanceFilter(10)}
+                      >
+                        Within 10 km
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDistanceFilter(null)
+                        setShowFilters(false)
+                      }}
+                      className="flex-1"
+                    >
+                      Clear Filters
+                    </Button>
+                    <Button onClick={() => setShowFilters(false)} className="flex-1">
+                      Apply Filters
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+      </section>
+
+      {/* Active Filters Display */}
+      {distanceFilter && (
+        <section className="bg-blue-50 border-b py-3">
+          <div className="container mx-auto px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-blue-700">
+                <span>Active filters:</span>
+                <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                  Within {distanceFilter} km
+                </Badge>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDistanceFilter(null)}
+                className="text-blue-700 hover:text-blue-900"
+              >
+                Clear all
+              </Button>
             </div>
           </div>
         </section>
@@ -159,13 +311,9 @@ export default function HomePage() {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-3xl font-bold text-gray-900">Restaurants near you</h2>
-            <Button variant="outline" className="flex items-center gap-2 bg-transparent">
-              <Filter className="w-4 h-4" />
-              Filters
-            </Button>
           </div>
 
-          {loading ? (
+          {loading && restaurants.length === 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {[...Array(8)].map((_, i) => (
                 <Card key={i} className="animate-pulse">
@@ -249,6 +397,24 @@ export default function HomePage() {
               <p className="text-gray-500 text-lg">No restaurants found matching your search.</p>
             </div>
           )}
+
+          {hasMore && !loading && filteredRestaurants.length > 0 && (
+            <div className="text-center mt-8">
+              <Button
+                onClick={handleLoadMore}
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Loading..." : "Load More Restaurants"}
+              </Button>
+            </div>
+          )}
+
+          {!hasMore && filteredRestaurants.length > 0 && (
+            <div className="text-center mt-8">
+              <p className="text-gray-500 text-lg">No more restaurants to load.</p>
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -308,5 +474,31 @@ const sampleRestaurants: Restaurant[] = [
     isOpen: false,
     priceRange: "₹",
     address: "Koramangala, Bangalore, Karnataka 560034",
+  },
+  {
+    id: "5",
+    name: "Curry House",
+    cuisine: "Indian",
+    rating: 4.6,
+    deliveryTime: "20-30 min",
+    deliveryFee: 35,
+    image: "/placeholder.svg?height=200&width=300",
+    distance: 1.8,
+    isOpen: true,
+    priceRange: "₹₹",
+    address: "Jubilee Hills, Hyderabad, Telangana 500033",
+  },
+  {
+    id: "6",
+    name: "Noodle Nook",
+    cuisine: "Chinese",
+    rating: 4.1,
+    deliveryTime: "25-40 min",
+    deliveryFee: 45,
+    image: "/placeholder.svg?height=200&width=300",
+    distance: 2.5,
+    isOpen: true,
+    priceRange: "₹",
+    address: "Chandni Chowk, Delhi 110006",
   },
 ]

@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -10,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { MapPin, Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff } from "lucide-react"
 
 export default function SignUpPage() {
   const [formData, setFormData] = useState({
@@ -18,8 +17,6 @@ export default function SignUpPage() {
     email: "",
     password: "",
     confirmPassword: "",
-    address: "",
-    phone: "",
   })
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -60,8 +57,6 @@ export default function SignUpPage() {
           username: formData.username,
           email: formData.email,
           password: formData.password,
-          address: formData.address,
-          phone: formData.phone,
         }),
       })
 
@@ -76,37 +71,6 @@ export default function SignUpPage() {
       setError("Network error. Please try again.")
     } finally {
       setLoading(false)
-    }
-  }
-
-  const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const response = await fetch("/api/geocode/reverse", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                lat: position.coords.latitude,
-                lng: position.coords.longitude,
-              }),
-            })
-
-            const data = await response.json()
-            if (data.address) {
-              setFormData((prev) => ({ ...prev, address: data.address }))
-            }
-          } catch (error) {
-            console.error("Error getting address:", error)
-          }
-        },
-        (error) => {
-          console.error("Error getting location:", error)
-        },
-      )
     }
   }
 
@@ -149,44 +113,6 @@ export default function SignUpPage() {
                 onChange={handleChange}
                 placeholder="Enter your email"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number</Label>
-              <Input
-                id="phone"
-                name="phone"
-                type="tel"
-                required
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="Enter your phone number"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="address">Delivery Address</Label>
-              <div className="relative">
-                <Input
-                  id="address"
-                  name="address"
-                  type="text"
-                  required
-                  value={formData.address}
-                  onChange={handleChange}
-                  placeholder="Enter your delivery address"
-                  className="pr-10"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-1 top-1/2 transform -translate-y-1/2"
-                  onClick={getCurrentLocation}
-                >
-                  <MapPin className="w-4 h-4" />
-                </Button>
-              </div>
             </div>
 
             <div className="space-y-2">

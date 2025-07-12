@@ -1,54 +1,68 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { serverOrderStorage } from "@/lib/server-storage"
+// app/api/orders/user/route.ts
+
+import { type NextRequest, NextResponse } from "next/server";
+import { serverOrderStorage } from "@/lib/server-storage";
+
+// 🚨 This line tells Next.js: DO NOT prerender statically
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    // Get user ID from query params
-    const url = new URL(request.url)
-    const userId = url.searchParams.get("userId")
+    const url = new URL(request.url);
+    const userId = url.searchParams.get("userId");
 
-    console.log("🔍 Fetching orders for user:", userId)
+    if (!userId) {
+      return NextResponse.json({ orders: [] }, { status: 400 });
+    }
 
-    let orders = []
+    console.log("🔍 Fetching orders for user:", userId);
 
-    if (userId) {
-      // First try server memory storage
-      const memoryOrders = serverOrderStorage.getUserOrders(userId)
-      if (memoryOrders.length > 0) {
-        orders = memoryOrders.map(transformOrder)
-        console.log(`📦 Found ${orders.length} orders in server memory`)
-      } else {
-        // Try database as fallback (if MongoDB is configured)
-        try {
-          if (process.env.MONGODB_URI) {
-            const { connectToDatabase } = await import("@/lib/mongodb")
-            const { db } = await connectToDatabase()
-            const dbOrders = await db.collection("orders").find({ userId: userId }).sort({ createdAt: -1 }).toArray()
+    let orders = [];
 
-            if (dbOrders.length > 0) {
-              orders = dbOrders.map(transformOrder)
-              console.log(`✅ Found ${orders.length} orders in database`)
-            }
-          }
-        } catch (dbError) {
-          console.log("⚠️ Database query failed:", dbError)
+    // 1️⃣ Try fetching from in-memory storage
+    const memoryOrders = serverOrderStorage.getUserOrders(userId);
+    if (memoryOrders.length > 0) {
+      console.log(`📦 Found ${memoryOrders.length} orders in memory`);
+      orders = memoryOrders.map(transformOrder);
+      return NextResponse.json({ orders });
+    }
+
+    // 2️⃣ Try fetching from database if MONGODB_URI is configured
+    if (process.env.MONGODB_URI) {
+      try {
+        const { connectToDatabase } = await import("@/lib/mongodb");
+        const { db } = await connectToDatabase();
+
+        const dbOrders = await db
+          .collection("orders")
+          .find({ userId })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        if (dbOrders.length > 0) {
+          console.log(`✅ Found ${dbOrders.length} orders in DB`);
+          orders = dbOrders.map(transformOrder);
+          return NextResponse.json({ orders });
+        } else {
+          console.log("📭 No orders found in DB for user:", userId);
         }
+      } catch (dbError) {
+        console.error("❌ DB Fetch Error:", dbError);
       }
+    } else {
+      console.warn("⚠️ No MONGODB_URI provided. Skipping DB fetch.");
     }
 
-    // If still no orders, return sample data
-    if (orders.length === 0) {
-      console.log("📋 Using sample orders")
-      orders = getSampleOrders()
-    }
-
-    return NextResponse.json({ orders })
+    // 3️⃣ Nothing found
+    console.log("🕳️ No orders found in memory or DB");
+    return NextResponse.json({ orders: [] });
   } catch (error) {
-    console.error("❌ Error fetching user orders:", error)
-    return NextResponse.json({ orders: getSampleOrders() })
+    console.error("❌ API Error:", error);
+    return NextResponse.json({ orders: [] }, { status: 500 });
   }
 }
 
+// 🧩 Util to clean the order structure before returning to frontend
 function transformOrder(order: any) {
   return {
     id: order._id,
@@ -61,40 +75,13 @@ function transformOrder(order: any) {
     })),
     total: order.total,
     status: order.status,
-    createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt,
+    createdAt:
+      order.createdAt instanceof Date
+        ? order.createdAt.toISOString()
+        : order.createdAt,
     estimatedDeliveryTime: order.estimatedDeliveryTime,
     deliveryAddress: order.deliveryAddress,
-  }
+  };
 }
 
-function getSampleOrders() {
-  return [
-    {
-      id: `ORD${Date.now()}001`,
-      restaurantName: "Pizza Palace",
-      items: [
-        { id: "1", name: "Margherita Pizza", quantity: 1, price: 299 },
-        { id: "2", name: "Caesar Salad", quantity: 1, price: 199 },
-      ],
-      total: 547,
-      status: "on_the_way",
-      createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-      estimatedDeliveryTime: "10-15 min",
-      deliveryAddress: "123 Main St, City, State",
-    },
-    {
-      id: `ORD${Date.now()}002`,
-      restaurantName: "Burger Junction",
-      items: [
-        { id: "3", name: "Classic Burger", quantity: 2, price: 199 },
-        { id: "4", name: "French Fries", quantity: 1, price: 99 },
-      ],
-      total: 546,
-      status: "delivered",
-      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      estimatedDeliveryTime: "Delivered",
-      deliveryAddress: "123 Main St, City, State",
-    },
-  ]
-}
 

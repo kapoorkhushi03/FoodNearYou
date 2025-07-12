@@ -1,231 +1,87 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 
-export async function GET(request: NextRequest, { params }: { params: { placeId: string } }) {
-  try {
-    const { placeId } = params
-
-    if (!process.env.GOOGLE_PLACES_API_KEY) {
-      return NextResponse.json({ error: "Google Places API key not configured" }, { status: 500 })
-    }
-
-    // Get place details from Google Places API
-    const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,formatted_phone_number,website,opening_hours,photos,rating,reviews,price_level,types,geometry&key=${process.env.GOOGLE_PLACES_API_KEY}`
-
-    const response = await fetch(detailsUrl)
-
-    if (!response.ok) {
-      throw new Error(`Google Places API error: ${response.status}`)
-    }
-
-    const data = await response.json()
-
-    if (data.status !== "OK") {
-      return NextResponse.json({ error: `Google Places API error: ${data.status}` }, { status: 400 })
-    }
-
-    const place = data.result
-
-    // Generate contextual menu based on restaurant type and name
-    const menu = generateContextualMenu(place.types, place.name)
-    const cuisine = getCuisineFromTypes(place.types)
-
-    const restaurant = {
-      id: placeId,
-      name: place.name,
-      cuisine: cuisine,
-      rating: place.rating || 4.0,
-      deliveryTime: calculateDeliveryTime(cuisine),
-      deliveryFee: calculateDeliveryFee(place.price_level),
-      image: place.photos?.[0]
-        ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${place.photos[0].photo_reference}&key=${process.env.GOOGLE_PLACES_API_KEY}`
-        : "/placeholder.svg?height=300&width=800",
-      address: place.formatted_address || "Address not available",
-      phone: place.formatted_phone_number || generateIndianPhoneNumber(),
-      isOpen: place.opening_hours?.open_now ?? true,
-      coordinates: place.geometry?.location || { lat: 0, lng: 0 },
-      priceRange: getPriceRange(place.price_level),
-      website: place.website,
-      menu: menu,
-    }
-
-    return NextResponse.json({ restaurant })
-  } catch (error) {
-    console.error("Error fetching restaurant details:", error)
-    return NextResponse.json({ error: "Failed to fetch restaurant details" }, { status: 500 })
-  }
-}
-
-function getCuisineFromTypes(types: string[]): string {
-  const cuisineMap: { [key: string]: string } = {
-    chinese_restaurant: "Chinese",
-    indian_restaurant: "Indian",
-    italian_restaurant: "Italian",
-    japanese_restaurant: "Japanese",
-    mexican_restaurant: "Mexican",
-    thai_restaurant: "Thai",
-    american_restaurant: "American",
-    french_restaurant: "French",
-    korean_restaurant: "Korean",
-    mediterranean_restaurant: "Mediterranean",
-    pizza_restaurant: "Pizza",
-    seafood_restaurant: "Seafood",
-    steakhouse: "Steakhouse",
-    sushi_restaurant: "Japanese",
-    vegetarian_restaurant: "Vegetarian",
-    fast_food_restaurant: "Fast Food",
-    cafe: "Cafe",
-    bakery: "Bakery",
-    bar: "Bar & Grill",
-    night_club: "Bar & Grill",
-    meal_takeaway: "Takeaway",
-    meal_delivery: "Quick Bites",
-  }
-
-  for (const type of types) {
-    if (cuisineMap[type]) {
-      return cuisineMap[type]
-    }
-  }
-
-  // Smart detection based on restaurant name
-  const name = types.join(" ").toLowerCase()
-  if (name.includes("pizza")) return "Pizza"
-  if (name.includes("burger")) return "American"
-  if (name.includes("coffee") || name.includes("cafe")) return "Cafe"
-  if (name.includes("biryani") || name.includes("indian")) return "Indian"
-  if (name.includes("chinese")) return "Chinese"
-
-  return "Multi-cuisine"
-}
-
-function getPriceRange(priceLevel?: number): string {
-  switch (priceLevel) {
-    case 0:
-      return "₹"
-    case 1:
-      return "₹"
-    case 2:
-      return "₹₹"
-    case 3:
-      return "₹₹₹"
-    case 4:
-      return "₹₹₹₹"
-    default:
-      return "₹₹"
-  }
-}
-
-function calculateDeliveryTime(cuisine: string): string {
-  const timeMap: { [key: string]: string } = {
-    "Fast Food": "15-25 min",
-    Pizza: "20-30 min",
-    Chinese: "25-35 min",
-    Indian: "30-45 min",
-    Italian: "25-40 min",
-    Japanese: "35-50 min",
-    Thai: "30-45 min",
-    Cafe: "15-25 min",
-    Bakery: "10-20 min",
-  }
-
-  return timeMap[cuisine] || "25-40 min"
-}
-
-function calculateDeliveryFee(priceLevel?: number): number {
-  switch (priceLevel) {
-    case 0:
-    case 1:
-      return Math.floor(Math.random() * 20) + 25 // ₹25-₹45
-    case 2:
-      return Math.floor(Math.random() * 25) + 35 // ₹35-₹60
-    case 3:
-      return Math.floor(Math.random() * 30) + 50 // ₹50-₹80
-    case 4:
-      return Math.floor(Math.random() * 40) + 70 // ₹70-₹110
-    default:
-      return Math.floor(Math.random() * 25) + 35 // ₹35-₹60
-  }
-}
-
-function generateIndianPhoneNumber(): string {
-  const areaCodes = ["80", "11", "22", "44", "40", "33", "79", "20"]
-  const areaCode = areaCodes[Math.floor(Math.random() * areaCodes.length)]
-  const number = Math.floor(Math.random() * 90000000) + 10000000
-  return `+91 ${areaCode} ${number.toString().slice(0, 4)} ${number.toString().slice(4)}`
-}
-
-function generateContextualMenu(types: string[], restaurantName: string) {
-  const name = restaurantName.toLowerCase()
-  const typeString = types.join(" ").toLowerCase()
-
-  // Determine menu type based on restaurant name and types
-  let menuType = "general"
-
-  if (
-    types.includes("indian_restaurant") ||
-    name.includes("biryani") ||
-    name.includes("tandoor") ||
-    name.includes("curry") ||
-    name.includes("indian") ||
-    name.includes("punjabi") ||
-    name.includes("south indian")
-  ) {
-    menuType = "indian"
-  } else if (
-    types.includes("chinese_restaurant") ||
-    name.includes("chinese") ||
-    name.includes("noodle") ||
-    name.includes("wok") ||
-    name.includes("dragon") ||
-    name.includes("golden")
-  ) {
-    menuType = "chinese"
-  } else if (
-    types.includes("italian_restaurant") ||
-    types.includes("pizza_restaurant") ||
-    name.includes("pizza") ||
-    name.includes("italian") ||
-    name.includes("pasta") ||
-    name.includes("romano")
-  ) {
-    menuType = "italian"
-  } else if (
-    types.includes("fast_food_restaurant") ||
-    types.includes("meal_takeaway") ||
-    name.includes("burger") ||
-    name.includes("kfc") ||
-    name.includes("mcdonald") ||
-    name.includes("subway") ||
-    name.includes("quick")
-  ) {
-    menuType = "fastfood"
-  } else if (
-    types.includes("cafe") ||
-    types.includes("bakery") ||
-    name.includes("cafe") ||
-    name.includes("coffee") ||
-    name.includes("starbucks") ||
-    name.includes("barista")
-  ) {
-    menuType = "cafe"
-  } else if (
-    types.includes("japanese_restaurant") ||
-    types.includes("sushi_restaurant") ||
-    name.includes("sushi") ||
-    name.includes("japanese") ||
-    name.includes("ramen")
-  ) {
-    menuType = "japanese"
-  } else if (types.includes("thai_restaurant") || name.includes("thai") || name.includes("bangkok")) {
-    menuType = "thai"
-  }
-
-  return getMenuByType(menuType, restaurantName)
-}
+const restaurants = [
+  {
+    id: "italian_delight",
+    name: "Italian Delight",
+    cuisine: "Italian",
+    rating: 4.5,
+    address: "123 Main St",
+    city: "New York",
+    state: "NY",
+    zip: "10001",
+    menuTypes: ["pizza", "pasta", "salads", "desserts"],
+  },
+  {
+    id: "spicy_indian",
+    name: "Spicy Indian",
+    cuisine: "Indian",
+    rating: 4.2,
+    address: "456 Elm St",
+    city: "Los Angeles",
+    state: "CA",
+    zip: "90001",
+    menuTypes: ["indian", "biryani", "tandoor", "bread", "dal", "desserts"],
+  },
+  {
+    id: "china_wok",
+    name: "China Wok",
+    cuisine: "Chinese",
+    rating: 4.0,
+    address: "789 Oak St",
+    city: "Chicago",
+    state: "IL",
+    zip: "60601",
+    menuTypes: ["chinese", "rice", "noodles", "chicken", "paneer", "appetizers"],
+  },
+  {
+    id: "fast_food_hub",
+    name: "Fast Food Hub",
+    cuisine: "Fast Food",
+    rating: 3.8,
+    address: "101 Pine St",
+    city: "Houston",
+    state: "TX",
+    zip: "77001",
+    menuTypes: ["fastfood", "burgers", "sides", "chicken", "drinks"],
+  },
+  {
+    id: "cafe_corner",
+    name: "Cafe Corner",
+    cuisine: "Cafe",
+    rating: 4.3,
+    address: "222 Maple St",
+    city: "Miami",
+    state: "FL",
+    zip: "33101",
+    menuTypes: ["cafe", "coffee", "sandwiches", "pastries", "desserts"],
+  },
+  {
+    id: "sushi_sensation",
+    name: "Sushi Sensation",
+    cuisine: "Japanese",
+    rating: 4.6,
+    address: "333 Birch St",
+    city: "San Francisco",
+    state: "CA",
+    zip: "94101",
+    menuTypes: ["japanese", "sushi", "mains", "sashimi", "soups", "ramen", "desserts"],
+  },
+  {
+    id: "thai_taste",
+    name: "Thai Taste",
+    cuisine: "Thai",
+    rating: 4.1,
+    address: "444 Cedar St",
+    city: "Seattle",
+    state: "WA",
+    zip: "98101",
+    menuTypes: ["thai", "noodles", "curry", "soups", "rice", "appetizers", "desserts"],
+  },
+]
 
 function getMenuByType(menuType: string, restaurantName: string) {
   const baseId = restaurantName.replace(/\s+/g, "_").toLowerCase()
-
   const menuTemplates: { [key: string]: any[] } = {
     indian: [
       {
@@ -235,6 +91,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "main course",
         isVegetarian: false,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Paneer Butter Masala",
@@ -243,6 +100,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "main course",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Biryani",
@@ -251,6 +109,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "biryani",
         isVegetarian: false,
         isSpicy: true,
+        image: "",
       },
       {
         name: "Veg Biryani",
@@ -259,6 +118,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "biryani",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1596797038530-2c107229654b?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Tandoori Chicken",
@@ -267,6 +127,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "tandoor",
         isVegetarian: false,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Paneer Tikka",
@@ -275,6 +136,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "tandoor",
         isVegetarian: true,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Garlic Naan",
@@ -283,6 +145,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "bread",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Dal Makhani",
@@ -291,6 +154,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "dal",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Gulab Jamun",
@@ -299,9 +163,9 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "desserts",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=300&h=200&fit=crop&crop=center",
       },
     ],
-
     chinese: [
       {
         name: "Chicken Fried Rice",
@@ -310,6 +174,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "rice",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Veg Fried Rice",
@@ -318,6 +183,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "rice",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Chow Mein",
@@ -326,6 +192,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "noodles",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1585032226651-759b368d7246?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Veg Hakka Noodles",
@@ -334,6 +201,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "noodles",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Sweet & Sour Chicken",
@@ -342,6 +210,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "chicken",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chilli Paneer",
@@ -350,6 +219,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "paneer",
         isVegetarian: true,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Manchurian",
@@ -358,6 +228,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "chicken",
         isVegetarian: false,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Spring Rolls",
@@ -366,9 +237,9 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "appetizers",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1544025162-d76694265947?w=300&h=200&fit=crop&crop=center",
       },
     ],
-
     italian: [
       {
         name: "Margherita Pizza",
@@ -377,6 +248,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pizza",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Pepperoni Pizza",
@@ -385,6 +257,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pizza",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken BBQ Pizza",
@@ -393,6 +266,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pizza",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1571407970349-bc81e7e96d47?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Pasta Carbonara",
@@ -401,6 +275,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pasta",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1621996346565-e3dbc353d2e5?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Pasta Arrabbiata",
@@ -409,6 +284,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pasta",
         isVegetarian: true,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Alfredo",
@@ -417,6 +293,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pasta",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1645112411341-6c4fd023714a?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Caesar Salad",
@@ -425,6 +302,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "salads",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1546793665-c74683f339c1?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Garlic Bread",
@@ -433,6 +311,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sides",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1619985632461-f33748ef8d3d?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Tiramisu",
@@ -441,9 +320,9 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "desserts",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=300&h=200&fit=crop&crop=center",
       },
     ],
-
     fastfood: [
       {
         name: "Classic Burger",
@@ -452,6 +331,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "burgers",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Burger",
@@ -460,6 +340,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "burgers",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1606755962773-d324e2dabd3f?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Veggie Burger",
@@ -468,6 +349,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "burgers",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1525059696034-4967a729002e?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "French Fries",
@@ -476,6 +358,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sides",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1576107232684-1279f390859f?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Wings",
@@ -484,6 +367,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "chicken",
         isVegetarian: false,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1608039755401-742074f0548d?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Nuggets",
@@ -492,6 +376,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "chicken",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1562967914-608f82629710?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Onion Rings",
@@ -500,6 +385,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sides",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1639024471283-03518883512d?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chocolate Shake",
@@ -508,9 +394,9 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "drinks",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=300&h=200&fit=crop&crop=center",
       },
     ],
-
     cafe: [
       {
         name: "Cappuccino",
@@ -519,6 +405,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "coffee",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Latte",
@@ -527,6 +414,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "coffee",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Americano",
@@ -535,6 +423,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "coffee",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Sandwich",
@@ -543,6 +432,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sandwiches",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1539252554453-80ab65ce3586?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Club Sandwich",
@@ -551,6 +441,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sandwiches",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1567234669003-dce7a7a88821?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chocolate Croissant",
@@ -559,6 +450,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pastries",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1555507036-ab794f4afe5e?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Blueberry Muffin",
@@ -567,6 +459,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "pastries",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1607958996333-41aef7caefaa?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Cheesecake",
@@ -575,9 +468,9 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "desserts",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=300&h=200&fit=crop&crop=center",
       },
     ],
-
     japanese: [
       {
         name: "California Roll",
@@ -586,6 +479,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sushi",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1579584425555-c3ce17fd4351?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Spicy Tuna Roll",
@@ -594,6 +488,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sushi",
         isVegetarian: false,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1617196034796-73dfa7b1fd56?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Vegetable Roll",
@@ -602,6 +497,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sushi",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1553621042-f6e147245754?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Teriyaki",
@@ -610,6 +506,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "mains",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Salmon Sashimi",
@@ -618,6 +515,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "sashimi",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1615361200098-eb3bcc2c9149?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Miso Soup",
@@ -626,6 +524,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "soups",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Chicken Ramen",
@@ -634,6 +533,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "ramen",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Green Tea Ice Cream",
@@ -642,9 +542,9 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "desserts",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=300&h=200&fit=crop&crop=center",
       },
     ],
-
     thai: [
       {
         name: "Pad Thai",
@@ -653,6 +553,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "noodles",
         isVegetarian: false,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1559314809-0f31657def5e?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Green Curry",
@@ -661,6 +562,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "curry",
         isVegetarian: true,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1455619452474-d2be8b1e70cd?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Tom Yum Soup",
@@ -669,6 +571,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "soups",
         isVegetarian: false,
         isSpicy: true,
+        image: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Thai Fried Rice",
@@ -677,6 +580,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "rice",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Massaman Curry",
@@ -685,6 +589,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "curry",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1455619452474-d2be8b1e70cd?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Spring Rolls",
@@ -693,6 +598,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "appetizers",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1544025162-d76694265947?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Mango Sticky Rice",
@@ -701,9 +607,9 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "desserts",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1587132137056-bfbf0166836e?w=300&h=200&fit=crop&crop=center",
       },
     ],
-
     general: [
       {
         name: "Chef's Special",
@@ -712,6 +618,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "specials",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Grilled Chicken",
@@ -720,6 +627,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "mains",
         isVegetarian: false,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1532550907401-a500c9a57435?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Vegetarian Platter",
@@ -728,6 +636,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "vegetarian",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Mixed Salad",
@@ -736,6 +645,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "salads",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1546793665-c74683f339c1?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Soup of the Day",
@@ -744,6 +654,7 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "soups",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1547592166-23ac45744acd?w=300&h=200&fit=crop&crop=center",
       },
       {
         name: "Fresh Juice",
@@ -752,16 +663,33 @@ function getMenuByType(menuType: string, restaurantName: string) {
         category: "drinks",
         isVegetarian: true,
         isSpicy: false,
+        image: "https://images.unsplash.com/photo-1622597467836-f3285f2131b8?w=300&h=200&fit=crop&crop=center",
       },
     ],
   }
 
   const selectedMenu = menuTemplates[menuType] || menuTemplates.general
-
   return selectedMenu.map((item, index) => ({
     id: `${baseId}_${index + 1}`,
     ...item,
-    image: "/placeholder.svg?height=200&width=300",
     isAvailable: true,
   }))
 }
+
+export async function GET(request: Request, { params }: { params: { placeId: string } }) {
+  const { placeId } = params
+
+  const restaurant = restaurants.find((r) => r.id === placeId)
+
+  if (!restaurant) {
+    return NextResponse.json({ error: "Restaurant not found" }, { status: 404 })
+  }
+
+  const { searchParams } = new URL(request.url)
+  const menuType = searchParams.get("menuType") || "general"
+
+  const menu = getMenuByType(menuType, restaurant.name)
+
+  return NextResponse.json({ ...restaurant, menu })
+}
+
